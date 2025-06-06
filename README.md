@@ -4,7 +4,11 @@
 
 魔改版 UniWorld UI，增强对话连贯性并添加了新的适配器选项，默认参数适配 16-24G 设备和 NF4 量化模型。<br>
 Modified UniWorld-UI, Enhance dialogue coherence and add new adapter options,Adapt to NF4 quantification model. <br>
-
+<br>
+量化推理及 VRAM 顺序卸载代码来自 @gluttony-10 , 并用 T5XXL-Unchained 替换了原始 FLUX 仓库中的文本编码，主模型使用 @wikeeyang 量化的NF4版本。<br>
+<br>
+启动命令：python -m univa.serve.gradio_web_server --model_path models\UniWorld-V1 --flux_path models\flux --lora_path models\loras --siglip_path models\siglip --nf4<br>
+<br>
 ![image](https://github.com/user-attachments/assets/3bfad761-886d-4733-85cc-a0471a3b1850)
 
 ## 可能会用到的模型仓库
@@ -23,6 +27,8 @@ https://huggingface.co/Kaoru8/T5XXL-Unchained
 **T5XXL-NF4** repo
 https://huggingface.co/diffusers/t5-nf4
 <br>
+https://huggingface.co/google/siglip2-so400m-patch16-512
+https://huggingface.co/black-forest-labs/FLUX.1-dev
 
 Thanks for **LanguageBind, wikeeyang, 十字鱼** @佬同志-Magical-reorganization
 <br>
