@@ -1,4 +1,44 @@
+![image](https://github.com/user-attachments/assets/0897c6fe-487b-498b-9010-d6aad4f60be4)
 
+# **Chat**UI - **UniWorld**-1
+
+魔改版 UniWorld UI，增强对话连贯性并添加了新的适配器选项，默认参数适配 16-24G 设备和 NF4 量化模型。<br>
+Modified UniWorld-UI, Enhance dialogue coherence and add new adapter options,Adapt to NF4 quantification model. <br>
+
+![image](https://github.com/user-attachments/assets/3bfad761-886d-4733-85cc-a0471a3b1850)
+
+**ChatUI Adapters** repo
+https://huggingface.co/GuangyuanSD/ChatUI-UniWorld-1
+<br>
+**UniWorld-1 Native** repo
+https://huggingface.co/LanguageBind/UniWorld-V1
+<br>
+**UniWorld-1 NF4** repo
+https://huggingface.co/wikeeyang/UniWorld-V1-NF4
+<br>
+**T5XXL-Unchained** repo
+https://huggingface.co/Kaoru8/T5XXL-Unchained
+<br>
+**T5XXL-NF4** repo
+https://huggingface.co/diffusers/t5-nf4
+<br>
+
+Thanks for **LanguageBind, wikeeyang, 十字鱼** @佬同志-Magical-reorganization
+<br>
+<br>
+![6764f554d822164569e56a3ae73789b2](https://github.com/user-attachments/assets/ff516588-c743-4f61-a169-f93e60a355b9)
+![image](https://github.com/user-attachments/assets/cd8394ea-cac7-4a55-931e-2cff2f5b724b)
+![image](https://github.com/user-attachments/assets/a3f4c9a7-97ae-4fbe-b7fe-33f9ebce7d87)
+<br>
+
+**本项目旨在**研究与体验最新架构模型能力，NF4 量化不可避免的降低了 UniWorld-V1 原本强大的编辑能力与一致性保持。<br>
+适用于民用GPU算力，在16G-24G设备上也可以良好运行，启动迅速，加速后生图仅需不到20秒，对话速度快。<br>
+**适配器模型来自网络，仅供研究用途**<br>
+<br>
+以下内容来自 UniWorld 原始代码仓库<br>
+
+---
+<br>
 <p align="center">
     <img src="https://s21.ax1x.com/2025/06/03/pVCBdw8.png" width="200"/>
 <p>
@@ -40,10 +80,6 @@
 # 📣 News
 
 * **[2025.06.03]** 🤗 We release UniWorld, a unified framework for understanding, generation, and editing. All [data](https://huggingface.co/datasets/LanguageBind/UniWorld-V1), [models](https://huggingface.co/LanguageBind/UniWorld-V1), [training code](https://github.com/PKU-YuanGroup/UniWorld-V1?tab=readme-ov-file#%EF%B8%8F-training), and [evaluation code](https://github.com/PKU-YuanGroup/UniWorld-V1?tab=readme-ov-file#%EF%B8%8F-evaluation) are open-sourced. Checking our [report](https://arxiv.org/abs/2506.03147) for more details. Welcome to **watch** 👀 this repository for the latest updates.
-
-<p align="center">
-    <img src="https://s21.ax1x.com/2025/06/05/pVPoZFJ.jpg" width="200"/>
-<p>
     
 <br>
 
