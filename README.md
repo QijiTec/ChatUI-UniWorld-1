@@ -27,8 +27,12 @@ https://huggingface.co/Kaoru8/T5XXL-Unchained
 **T5XXL-NF4** repo
 https://huggingface.co/diffusers/t5-nf4
 <br>
-https://huggingface.co/google/siglip2-so400m-patch16-512
-https://huggingface.co/black-forest-labs/FLUX.1-dev
+<br>
+<br>
+siglip2<br>
+https://huggingface.co/google/siglip2-so400m-patch16-512<br>
+FLUX.1-dev<br>
+https://huggingface.co/black-forest-labs/FLUX.1-dev<br>
 
 Thanks for **LanguageBind, wikeeyang, 十字鱼** @佬同志-Magical-reorganization
 <br>
