@@ -7,6 +7,7 @@ Modified UniWorld-UI, Enhance dialogue coherence and add new adapter options,Ada
 
 ![image](https://github.com/user-attachments/assets/3bfad761-886d-4733-85cc-a0471a3b1850)
 
+## 可能会用到的模型仓库
 **ChatUI Adapters** repo
 https://huggingface.co/GuangyuanSD/ChatUI-UniWorld-1
 <br>
@@ -31,7 +32,7 @@ Thanks for **LanguageBind, wikeeyang, 十字鱼** @佬同志-Magical-reorganizat
 ![image](https://github.com/user-attachments/assets/a3f4c9a7-97ae-4fbe-b7fe-33f9ebce7d87)
 <br>
 
-**本项目旨在**研究与体验最新架构模型能力，NF4 量化不可避免的降低了 UniWorld-V1 原本强大的编辑能力与一致性保持。<br>
+**本项目旨在**研究与体验最新架构模型能力，量化不可避免降低 UniWorld-V1 原本强大的编辑能力与一致性保持。<br>
 适用于民用GPU算力，在16G-24G设备上也可以良好运行，启动迅速，加速后生图仅需不到20秒，对话速度快。<br>
 **适配器模型来自网络，仅供研究用途**<br>
 <br>
