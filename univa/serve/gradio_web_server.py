@@ -24,10 +24,12 @@ def parse_args():
     parser.add_argument("--model_path", type=str, default="LanguageBind/UniWorld-V1", help="UniWorld-V1模型路径")
     parser.add_argument("--flux_path", type=str, default="black-forest-labs/FLUX.1-dev", help="FLUX.1-dev模型路径")
     parser.add_argument("--siglip_path", type=str, default="google/siglip2-so400m-patch16-512", help="siglip2模型路径")
+    parser.add_argument("--lora_path", type=str, default="loras", help="Flux LoRA模型路径")
     parser.add_argument("--server_name", type=str, default="127.0.0.1", help="IP地址")
     parser.add_argument("--server_port", type=int, default=6812, help="端口号")
     parser.add_argument("--share", action="store_true", help="是否公开分享")
     parser.add_argument("--nf4", action="store_true", help="是否NF4量化")
+
 
     return parser.parse_args()
 
@@ -98,7 +100,7 @@ def img2b64(image_path):
 
 
 def initialize_models(args):
-    os.makedirs("tmp", exist_ok=True)
+    os.makedirs("outputs", exist_ok=True)
     # Paths
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -148,8 +150,21 @@ def initialize_models(args):
             transformer=model.denoise_tower.denoiser,
             torch_dtype=torch.bfloat16,
         ).to(device)
+        
+    # 预加载 LoRA 模型但默认不启用
+    pipe.load_lora_weights(os.path.join(args.lora_path, "Turbo_8Steps.safetensors"), adapter_name="nitro")
+    pipe.load_lora_weights(os.path.join(args.lora_path, "NSFW_master.safetensors"), adapter_name="nsfw")
+    pipe.load_lora_weights(os.path.join(args.lora_path, "METAGIRL-FLUX.safetensors"), adapter_name="girl")
+    pipe.load_lora_weights(os.path.join(args.lora_path, "ICEdit-normal.safetensors"), adapter_name="icedit")
+    pipe.load_lora_weights(os.path.join(args.lora_path, "Detailer.safetensors"), adapter_name="detailer")
+    pipe.load_lora_weights(os.path.join(args.lora_path, "RedCraft-RED1.safetensors"), adapter_name="redcraft")
+    
+    # 默认禁用所有 LoRA
+    pipe.disable_lora()
     tokenizers = [pipe.tokenizer, pipe.tokenizer_2]
     text_encoders = [pipe.text_encoder, pipe.text_encoder_2]
+    pipe.enable_model_cpu_offload()
+    pipe.enable_vae_slicing()
 
     # Optional SigLIP
     siglip_processor, siglip_model = None, None
@@ -188,7 +203,7 @@ def process_large_image(raw_img):
         new_h = int(img.height * scale)
         print(f'resize img {img.size} to {(new_w, new_h)}')
         img = img.resize((new_w, new_h), resample=Image.LANCZOS)
-        save_path = f"tmp/{uuid.uuid4().hex}.png"
+        save_path = f"outputs/{uuid.uuid4().hex}.png"
         img.save(save_path)
         return save_path
     else:
@@ -197,7 +212,8 @@ def process_large_image(raw_img):
 
 def chat_step(image1, image2, text, height, width, steps, guidance,
               ocr_enhancer, joint_with_t5, enhance_generation, enhance_understanding,
-              seed, num_imgs, history_state, progress=gr.Progress()):
+              enable_nitro, enable_nsfw, enable_girl, enable_icedit, 
+              enable_detailer, enable_redcraft, seed, num_imgs, history_state, progress=gr.Progress()):
     
     try:
         convo = history_state['conversation']
@@ -290,8 +306,43 @@ def chat_step(image1, image2, text, height, width, steps, guidance,
 
                 return tensor_dict
 
+            # 根据 Checkbox 状态控制 LoRA 模型的启用/禁用
+            pipe = state['pipe']
+            pipe.disable_lora()  # 先禁用所有 LoRA
+            
+            # 根据 Checkbox 状态启用对应的 LoRA
+            if enable_nitro:
+                pipe.set_adapters("nitro")
+                pipe.enable_lora()
+                print("Enabled nitro LoRA")
+            
+            if enable_nsfw:
+                pipe.set_adapters("nsfw")
+                pipe.enable_lora()
+                print("Enabled NSFW LoRA")
+                
+            if enable_girl:
+                pipe.set_adapters("girl")
+                pipe.enable_lora()
+                print("Enabled girl LoRA")
+            
+            if enable_icedit:
+                pipe.set_adapters("icedit")
+                pipe.enable_lora()
+                print("Enabled icedit LoRA")
+                
+            if enable_detailer:
+                pipe.set_adapters("detailer")
+                pipe.enable_lora()
+                print("Enabled detailer LoRA")
+                
+            if enable_redcraft:
+                pipe.set_adapters("redcraft")
+                pipe.enable_lora()
+                print("Enabled redcraft LoRA")
+                
             with torch.no_grad():
-                img = state['pipe'](
+                img = pipe(
                     prompt_embeds=emb, pooled_prompt_embeds=pooled,
                     height=height, width=width,
                     num_inference_steps=steps,
@@ -303,7 +354,7 @@ def chat_step(image1, image2, text, height, width, steps, guidance,
                 ).images
             # img = [add_plain_text_watermark(im, 'Open-Sora Plan 2.0 Generated') for im in img]
             img = concat_images_adaptive(img)
-            save_path = f"tmp/{uuid.uuid4().hex}.png"
+            save_path = f"outputs/{uuid.uuid4().hex}.png"
             img.save(save_path)
             convo.append({'role':'assistant','content':[{'type':'image','image':save_path}]})
             cur_genimg_i += 1
@@ -368,7 +419,7 @@ def clear_inputs():
 
 def clear_history():
     # 默认 prompt 和 seed
-    default_prompt = "Translate this photo into a Studio Ghibli-style illustration, holding true to the original composition and movement."
+    default_prompt = "输入后按回车发送..."
     default_seed   = "-1"
 
     # 1. chatbot 要用 gr.update(value=[]) 清空
@@ -397,100 +448,52 @@ if __name__ == '__main__':
         gr.Markdown(
             """
             <div style="text-align:center;">
-
-            # 🎉 UniWorld-V1 Chat Interface 🎉
-            ### Unlock Cutting‑Edge Visual Perception, Feature Extraction, Editing, Synthesis, and Understanding
-
-            **Usage Guide:**
-
-            - It is recommended to perform inference on four images concurrently to offer varied selections.
-
-            - Uploaded images are automatically resized; manually specifying resolutions that differ substantially from the original is not advised.
+            #CHATUI.uniworld-v1
             </div>
             """,
-            elem_classes="header-text",
         )
-        with gr.Row():
-            with gr.Column(1, min_width=0):
-                gr.Markdown(
-                    """
-                    **🖼️ Visual Perception & Feature Extraction**  
-                    - Canny Edge Detection  
-                    - Mini-Line Segment Detection  
-                    - Normal Map Generation
-                    - Sketch Generation  
-                    - Holistically-Nested Edge Detection  
-                    - Depth Estimation  
-                    - Human Pose Estimation
-                    - Object Detection (Boxes)  
-                    - Semantic Segmentation (Masks)
-                    """
-                )
-            with gr.Column(1, min_width=0):
-                gr.Markdown(
-                    """
-                    **✂️ Image Editing & Manipulation**  
-                    - Add Elements  
-                    - Adjust Attributes  
-                    - Change Background  
-                    - Remove Objects  
-                    - Replace Regions  
-                    - Perform Actions  
-                    - Restyle  
-                    - Compose Scenes
-                    """
-                )
-            with gr.Column(1, min_width=0):
-                gr.Markdown(
-                    """
-                    **🔄 Cross-Modal Synthesis & Transformation**  
-                    - Text→Image Synthesis  
-                    - Image‑to‑Image Translation  
-                    - Multi‑Image Combination 
-                    - Extract IP Features  
-                    - IP Feature Composition
-                    """ 
-                )
-            with gr.Column(1, min_width=0):
-                gr.Markdown(
-                    """
-                    **🤖 Visual & Textual QA**  
-                    - Image‑Text QA  
-                    - Text‑Text QA
-                    """
-                )
 
         with gr.Row():
+            with gr.Column():
+                chatbot = gr.Chatbot(
+                    max_height=100000, min_height=550, 
+                    height=None, 
+                    resizable=True, 
+                    show_copy_button=True
+                    )
+                text_in = gr.Textbox(label="对话引导 Instruction", value="输入后按回车发送...")
+                with gr.Accordion("Adapters Options", open=True, visible=True):
+                    with gr.Row():
+                        enable_nitro = gr.Checkbox(value=False, label="Enable Nitro Boost - 8-10steps")
+                        enable_nsfw = gr.Checkbox(value=False, label="Enable NSFW - for T2Igeneration")
+                        enable_girl = gr.Checkbox(value=False, label="Enable Asian Girl")
+                    with gr.Row():
+                        enable_icedit = gr.Checkbox(value=False, label="Enable ICEdit")
+                        enable_detailer = gr.Checkbox(value=False, label="Enable Detailer")
+                        enable_redcraft = gr.Checkbox(value=False, label="Enable RedCraft style")
             with gr.Column():
                 with gr.Row():
                     img1 = gr.Image(type='filepath', label="Image 1", height=256, width=256)
                     img2 = gr.Image(type='filepath', label="Image 2 (Optional reference)", height=256, width=256, visible=True)
-                text_in = gr.Textbox(label="Instruction", value="Translate this photo into a Studio Ghibli-style illustration, holding true to the original composition and movement.")
                 seed = gr.Textbox(label="Seed (-1 for random)", value="-1")
                 seed_holder = gr.Textbox(visible=False)
                 with gr.Row():
-                    num_imgs = gr.Slider(1, 4, 4, step=1, label="Num Images")
+                    num_imgs = gr.Slider(1, 4, 1, step=1, label="Num Images")
                 
                 with gr.Row():
-                    height = gr.Slider(256, 2048, 1024, step=64, label="Height")
-                    width = gr.Slider(256, 2048, 1024, step=64, label="Width")
+                    height = gr.Slider(256, 2048, 768, step=64, label="Height")
+                    width = gr.Slider(256, 2048, 768, step=64, label="Width")
                 with gr.Row():
-                    steps = gr.Slider(8, 50, 30, step=1, label="Inference steps")
+                    steps = gr.Slider(8, 50, 28, step=1, label="Inference steps")
                     guidance = gr.Slider(1.0, 10.0, 4.0, step=0.1, label="Guidance scale")
-                with gr.Accordion("Advanced Options", open=False, visible=True):
+                with gr.Accordion("Advanced Options", open=True, visible=True):
                     with gr.Row():
                         enhance_gen_box = gr.Checkbox(value=False, label="Enhance Generation")
                         enhance_und_box = gr.Checkbox(value=False, label="Enhance Understanding")
                     with gr.Row():
                         ocr_box = gr.Checkbox(value=False, label="Enhance Text Rendering")
                         t5_box = gr.Checkbox(value=False, label="Enhance Current Turn")
-            with gr.Column():
-                chatbot = gr.Chatbot(
-                    max_height=100000, min_height=700, 
-                    height=None, 
-                    resizable=True, 
-                    show_copy_button=True
-                    )
+
         anchor_pixels = 1024*1024
         # Dynamic resize callback
         def update_size(i1, i2):
@@ -513,28 +516,34 @@ if __name__ == '__main__':
         img2.change(fn=update_size, inputs=[img1, img2], outputs=[height, width])
 
         # Mutual exclusivity
-        enhance_gen_box.change(
-            lambda g: gr.update(value=False) if g else gr.update(),
-            inputs=[enhance_gen_box], outputs=[enhance_und_box]
-        )
         enhance_und_box.change(
             lambda u: gr.update(value=False) if u else gr.update(),
             inputs=[enhance_und_box], outputs=[enhance_gen_box]
         )
+        enhance_gen_box.change(
+            lambda g: gr.update(value=False) if g else gr.update(),
+            inputs=[enhance_gen_box], outputs=[enhance_und_box]
+        )
+
         state_ = gr.State({'conversation':[], 'history_image_paths':[], 'cur_ocr_i':0, 'cur_genimg_i':0})
         with gr.Row():
             submit = gr.Button("Send", variant="primary")
             clear = gr.Button("Clear History", variant="primary")
 
+
+
         progress_bar = gr.Progress()
         click_event = submit.click(
             fn=chat_step,
             inputs=[img1, img2, text_in, height, width, steps, guidance,
-                    ocr_box, t5_box, enhance_gen_box, enhance_und_box, seed, num_imgs, state_, 
+                    ocr_box, t5_box, enhance_gen_box, enhance_und_box,
+                    enable_nitro, enable_nsfw, enable_girl, enable_icedit, 
+                    enable_detailer, enable_redcraft,seed, num_imgs, state_,
                     ],
             outputs=[chatbot, state_, seed_holder], 
             scroll_to_output=True
         )
+        
         click_event.then(
             fn=copy_seed_for_user,
             inputs=[seed_holder],    # 输入是隐藏的 seed_holder
@@ -547,8 +556,75 @@ if __name__ == '__main__':
             outputs=[chatbot, state_, img1, img2, text_in, seed]
         )
 
+        submit_event = text_in.submit(
+            fn=chat_step,
+            inputs=[img1, img2, text_in, height, width, steps, guidance,
+                    ocr_box, t5_box, enhance_gen_box, enhance_und_box,
+                    enable_nitro, enable_nsfw, enable_girl, enable_icedit, 
+                    enable_detailer, enable_redcraft,seed, num_imgs, state_,
+                    ],
+            outputs=[chatbot, state_, seed_holder], 
+            scroll_to_output=True
+        )
+        
+        submit_event.then(
+            fn=copy_seed_for_user,
+            inputs=[seed_holder],    # 输入是隐藏的 seed_holder
+            outputs=[seed]           # 输出到真正要显示的 seed Textbox
+        )
+
+        with gr.Row():
+            with gr.Column(1, min_width=0):
+                gr.Markdown(
+                    """
+                    **🖼️ 视觉感知与特征提取 / Visual Perception & Feature Extraction**  
+                    - Canny 边缘检测 / Canny Edge Detection  
+                    - 小尺度线段检测 / Mini-Line Segment Detection  
+                    - 法线图生成 / Normal Map Generation  
+                    - 草图生成 / Sketch Generation  
+                    - 全局嵌套边缘检测 / Holistically-Nested Edge Detection  
+                    - 深度估计 / Depth Estimation  
+                    - 人体姿态估计 / Human Pose Estimation  
+                    - 目标检测（框）/ Object Detection (Boxes)  
+                    - 语义分割（掩码）/ Semantic Segmentation (Masks)
+                    """
+                )
+            with gr.Column(1, min_width=0):
+                gr.Markdown(
+                    """
+                    **✂️ 图像编辑与处理 / Image Editing & Manipulation**  
+                    - 添加元素 / Add Elements  
+                    - 调整属性 / Adjust Attributes  
+                    - 更换背景 / Change Background  
+                    - 移除对象 / Remove Objects  
+                    - 替换区域 / Replace Regions  
+                    - 执行动作 / Perform Actions  
+                    - 重新风格化 / Restyle  
+                    - 构建场景 / Compose Scenes
+                    """
+                )
+            with gr.Column(1, min_width=0):
+                gr.Markdown(
+                    """
+                    **🔄 跨模态合成与转换 / Cross-Modal Synthesis & Transformation**  
+                    - 文本生成图像 / Text→Image Synthesis  
+                    - 图像到图像翻译 / Image-to-Image Translation  
+                    - 多图融合生成 / Multi-Image Combination  
+                    - 提取 IP 特征 / Extract IP Features  
+                    - IP 特征组合 / IP Feature Composition
+                    """ 
+                )
+            with gr.Column(1, min_width=0):
+                gr.Markdown(
+                    """
+                    **🤖 视觉与文本问答 / Visual & Textual QA**  
+                    - 图像-文本问答 / Image-Text QA  
+                    - 文本-文本问答 / Text-Text QA
+                    """
+                )
+
         # ========== 添加 Validation Examples ==========
-        example_height, example_width = 1024, 1024
+        example_height, example_width = 768, 768
         gr.Examples(
             examples_per_page=100, 
             examples=[
@@ -557,114 +633,131 @@ if __name__ == '__main__':
                 "Generate an adorable golden retriever puppy playing in a sunny park, "
                 "with fluffy fur, big round eyes, and a happy expression. "
                 "The background should have green grass, some flowers, and a blue sky with white clouds.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
 
                 # NIKE color swap
                 ["assets/nike_src.jpg", None,
                 "Switch the product's color from black, black to white, white, making sure the transition is crisp and clear.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # style transfer (Ghibli)
                 ["assets/gradio/origin.png", None,
                 "Translate this photo into a Studio Ghibli-style illustration, holding true to the original composition and movement.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 ["assets/gradio/origin.png", None,
                 "Remove the bicycle located in the lower center region of the image.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # blur
                 ["assets/gradio/blur.jpg", None,
                 "Remove blur, make it clear.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # 
                 ["assets/gradio/00004614_tgt.jpg", None,
                 "Add the ingrid fair isle cashmere turtleneck sweater to the person.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
                 # 
                 ["assets/gradio/00006581_tgt.jpg", None,
                 "Place the belvoir broderie anglaise linen tank on the person in a way that complements their appearance and style.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
                 # 
                 ["assets/gradio/00008153_tgt.jpg", None,
                 "Integrate may cashmere tank on body.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
                 # 
                 ["assets/gradio/00002315_src.jpg", None,
                 "Strip away all context and distractions, leaving the pointelle-trimmed cashmere t-shirt floating on a neutral background.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
                 # 
                 ["assets/gradio/00002985_src.jpg", None,
                 "Generate an image containing only the henry shearling jacket, free from any other visual elements.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 ["assets/gradio/origin.png", None,
                 "Add a cat in the center of image.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # image+image-to-image (compose)
                 ["assets/00182555_target.jpg",
                 "assets/00182555_InstantStyle_ref_1.jpg",
                 "Adapt Image1's content to fit the aesthetic of Image2.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # replace object
                 ["assets/replace_src.png", None,
                 "replace motorcycle located in the lower center region of the image with a black bicycle",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # segmentation
                 ["assets/seg_src.jpg", None,
                 "Segment the giraffe from the background.\n",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # detection
                 ["assets/det_src.jpg", None,
                 "Please depict the vase accurately",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # image-to-canny
                 ["assets/canny_image.jpg", None,
                 "Generate a Canny edge map for this image.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # image-to-mlsd
                 ["assets/mlsd_image.jpg", None,
                 "Render an MLSD detection overlay for this input image.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # image-to-normal
                 ["assets/normal_image.jpg", None,
                 "Convert the input texture into a tangent-space normal map.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # image-to-sketch
                 ["assets/sketch_image.jpg", None,
                 "Transform this image into a hand-drawn charcoal sketch.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # image-to-hed
                 ["assets/hed_image.jpg", None,
                 "Produce a holistically-nested boundary probability map of this image.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
                 # image-to-depth
                 ["assets/depth_image.jpg", None,
                 "Estimate depth with a focus on background structure.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
                 
                 # image-to-image (reconstruction)
                 ["assets/rec.jpg", None,
                 "Simply reconstruct the original image with no enhancements.",
-                example_height, example_width, 30, 4.0, False, False, False, False, "-1", 4],
+                example_height, example_width, 25, 4.0, False, False, False, False, "-1", 1],
 
             ],
             inputs=[img1, img2, text_in, height, width, steps, guidance,
                     ocr_box, t5_box, enhance_gen_box, enhance_und_box, seed, num_imgs],
         )
     # ==============================================
+
+        gr.Markdown(
+            """
+            <div style="text-align:center;">
+            ###解锁尖端视觉感知、特征提取、编辑、合成与理解
+
+            **使用指南：**
+
+            - 建议同时对四张图片进行推理，以提供多样化的选择。
+
+            - 上传的图像会自动调整尺寸；不建议手动指定与原图差异过大的分辨率。
+            </div>
+            """,
+            elem_classes="header-text",
+        )
+
+
 
 if __name__ == "__main__": 
     demo.launch(
