@@ -10,6 +10,10 @@ FLUX模型包删除了 transformer 权重, 并用 T5XXL-Unchained 替换了原�
 <br>
 启动命令：python -m univa.serve.gradio_web_server --model_path models\UniWorld-V1 --flux_path models\flux --lora_path models\loras --siglip_path models\siglip2 --nf4<br>
 <br>
+ComfyUI 节点推荐这位老兄的：
+<br>
+https://github.com/judian17/ComfyUI-UniWorld-jd17
+<br>
 ![image](https://github.com/user-attachments/assets/3bfad761-886d-4733-85cc-a0471a3b1850)
 
 ## 可能会用到的模型仓库
